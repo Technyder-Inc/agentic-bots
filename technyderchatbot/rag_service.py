@@ -15,16 +15,18 @@ import os
 # === Load environment variables ===
 load_dotenv()
 
+import streamlit as st
+
 DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "localhost"),
-    "database": os.getenv("DB_NAME", "mydb"),
-    "user": os.getenv("DB_USER", "myuser"),
-    "password": os.getenv("DB_PASSWORD", "mypassword"),
-    "port": int(os.getenv("DB_PORT", 5432))
+    "host": st.secrets["database"]["host"],
+    "database": st.secrets["database"]["name"],
+    "user": st.secrets["database"]["user"],
+    "password": st.secrets["database"]["password"],
+    "port": int(st.secrets["database"]["port"]),
 }
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-TABLE_NAME = os.getenv("TABLE_NAME", "scraped_pages")
+GEMINI_API_KEY = st.secrets["api"]["gemini_key"]
+TABLE_NAME = st.secrets["table"]["name"]
 
 
 # Configure logging
@@ -139,7 +141,8 @@ class GeminiRAG:
 
     def ask_question(self, question: str, max_sources: int = 50,
                      embedding_field: str = "combined_embedding",
-                     hybrid: bool = False) -> Dict:
+                     hybrid: bool = False,
+                     show_sources: bool = False) -> Dict:
         """RAG pipeline with embeddings + optional hybrid search"""
         try:
             search_results = self.search_content(
@@ -151,16 +154,26 @@ class GeminiRAG:
             if not search_results or search_results[0].relevance_score < 0.3:
                 # fallback: let Gemini answer directly
                 response = self.model.generate_content(
-                    f"Answer the following question based on your knowledge:\n\n{question}",
+                    f"""Hey! Great question about "{question}". 
+
+I don't have specific details about this in our Technyder knowledge base right now, but I'd love to help you out! Let me share what I know about this topic in general, and I'll make sure to keep it conversational and easy to understand.
+
+Here's what I can tell you:""",
                     generation_config=genai.types.GenerationConfig(
                         max_output_tokens=400,
-                        temperature=0.5,
+                        temperature=0.8,
                     )
                 )
+                if show_sources:
+                    return {
+                        "answer": response.text,
+                        "sources": [],
+                        "confidence": 0.5,
+                        "num_sources": 0,
+                    }
                 return {
                     "answer": response.text,
-                    "sources": [],
-                    "confidence": 0.5
+                    "confidence": 0.5,
                 }
 
 
@@ -181,37 +194,45 @@ Content: {snippet}
 
             context = "\n".join(context_parts)
 
-            prompt = f"""You are a helpful assistant. Answer the question based only on the provided context.
+            prompt = f"""Hey there! I found some great information about your question. Let me share what I discovered:
 
-Context:
 {context}
 
-Question: {question}
+So, to answer your question about "{question}" - here's what I can tell you:
 
-Answer:"""
+I want you to respond as if you're having a friendly conversation with someone who's genuinely interested in learning about Technyder. Be warm, engaging, and conversational. Don't just list facts - tell a story or explain things in a way that feels natural and human. 
+
+IMPORTANT: Do NOT mention sources, citations, or reference numbers in your response. Just give a natural, conversational answer as if you're sharing knowledge you know. Don't say things like "Source 1 states" or "According to the information" - just speak naturally about what you know.
+
+Use phrases like "I found that..." or "What's really interesting is..." or "From what I can see..." but make it sound like you're excited to share this information with them!"""
 
             response = self.model.generate_content(
                 prompt,
                 generation_config=genai.types.GenerationConfig(
                     max_output_tokens=500,
-                    temperature=0.3,
+                    temperature=0.8,
                 )
             )
 
-            sources = [
-                {
-                    "title": result.title,
-                    "url": result.url,
-                    "relevance_score": result.relevance_score
+            if show_sources:
+                sources = [
+                    {
+                        "title": result.title,
+                        "url": result.url,
+                        "relevance_score": result.relevance_score
+                    }
+                    for result in search_results
+                ]
+                return {
+                    "answer": response.text,
+                    "sources": sources,
+                    "confidence": 0.85,
+                    "num_sources": len(search_results),
                 }
-                for result in search_results
-            ]
 
             return {
                 "answer": response.text,
-                "sources": sources,
-                "confidence": 0.85   ,
-                "num_sources": len(search_results)
+                "confidence": 0.85,
             }
 
         except Exception as e:
@@ -225,21 +246,8 @@ Answer:"""
 
 # === Quick Test ===
 if __name__ == "__main__":
-    DB_CONFIG = {
-        'host': 'localhost',
-        'database': 'mydb',
-        'user': 'myuser', 
-        'password': 'mypassword',
-        'port': 5434
-    }
-  
-
-    GEMINI_API_KEY = "AIzaSyDhrPLQnZBQmXJ7ufV_F-MefwKiXzRdkRA"
-    TABLE_NAME = "scraped_pages"
-
     rag = GeminiRAG(DB_CONFIG, GEMINI_API_KEY, TABLE_NAME)
 
     # Pure embedding search
-    res = rag.ask_question("Based on the information from technyder.co, what kinds of technology and AI services does Technyder provide—such as custom software, DevOps, automation, machine learning, or chatbot development—and how do these services help businesses improve efficiency or transform digitally?", embedding_field="combined_embedding")
+    res = rag.ask_question("Based on the information from technyder.co, what kinds of technology and AI services does Technyder provide—such as custom software, DevOps, automation, machine learning, or chatbot development—and how do these services help businesses improve efficiency or transform digitally?", embedding_field="combined_embedding", show_sources=False)
     print("Answer:", res["answer"])
-    print("Sources:", res["sources"])

@@ -18,16 +18,18 @@ from dotenv import load_dotenv
 # === Load environment variables ===
 load_dotenv()
 
+import streamlit as st
+
 DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "localhost"),
-    "database": os.getenv("DB_NAME", "mydb"),
-    "user": os.getenv("DB_USER", "myuser"),
-    "password": os.getenv("DB_PASSWORD", "mypassword"),
-    "port": int(os.getenv("DB_PORT", 5432))
+    "host": st.secrets["database"]["host"],
+    "database": st.secrets["database"]["name"],
+    "user": st.secrets["database"]["user"],
+    "password": st.secrets["database"]["password"],
+    "port": int(st.secrets["database"]["port"]),
 }
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-TABLE_NAME = os.getenv("TABLE_NAME", "scraped_pages")
+GEMINI_API_KEY = st.secrets["api"]["gemini_key"]
+TABLE_NAME = st.secrets["table"]["name"]
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -409,7 +411,7 @@ def backfill_embeddings():
             rows = cur.fetchall()
 
             if not rows:
-                logger.info("No rows need embedding generation!")
+                logger.info("🎉 No rows need embedding generation!")
                 return
 
             logger.info(f"Found {len(rows)} rows needing embeddings...")
@@ -438,10 +440,10 @@ def backfill_embeddings():
                     WHERE id = %s;
                 """, (title_emb, content_emb, combined_emb, row["id"]))
 
-                logger.info(f" Updated embeddings for row {row['id']}")
+                logger.info(f"✅ Updated embeddings for row {row['id']}")
 
             conn.commit()
-            logger.info("Backfill complete!")
+            logger.info("🎯 Backfill complete!")
 
 
 if __name__ == "__main__":
